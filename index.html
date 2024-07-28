@@ -1,61 +1,194 @@
 <!DOCTYPE html>
 <meta charset="utf-8">
 
-<!-- Add a radio button -->
-<input type="number" id="buttonXlim" value=9>
-
 <!-- Load d3.js -->
 <script src='https://d3js.org/d3.v5.min.js'></script>
+
+<style>
+  #mpgchart {
+      display: flex;
+      justify-content: center;
+    }
+
+  .chart-container {
+    display: flex;
+    border: 1px solid #ccc;
+    padding: 10px;
+    align-items: flex-start;  
+  }
   
+  .chart-title {
+    text-align: center;
+    font-size: 18px;
+    margin-bottom: 10px;
+  }
+
+  #cylinders {
+    margin-right: 20px; /* Space between the radio buttons and the chart */
+    margin-top: 100px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .cylinders-title {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 10px;
+  }
+</style>
+
 <!-- Create a div where the graph will take place -->
 <body onload='init()'>
-<div id="mpgchart"></div>
-  
+<div id="mpgchart">
+    <div class="chart-container">
+        <div id="cylinders">
+            <div class="cylinders-title">Select Cylinder Count:</div>
+        </div>
+        <div>
+            <div class="chart-title">Fuel Efficiency by Engine Cylinder</div>
+            <div id="chart"></div>
+        </div>
+    </div>
+</div>
+</body>  
 <script>
-  
+
 async function init() {
-// set the dimensions and margins of the graph
-var margin = {top: 10, right: 30, bottom: 30, left: 60},
-    width = 460 - margin.left - margin.right,
-    height = 400 - margin.top - margin.bottom;
+  // set the dimensions and margins of the graph
+  var margin = {top: 10, right: 30, bottom: 70, left: 60},
+      width = 1024 - margin.left - margin.right,
+      height = 400 - margin.top - margin.bottom;
 
-// append the svg object to the body of the page
-var svg = d3.select("#mpgchart")
-  .append("svg")
-    .attr("width", width + margin.left + margin.right)
-    .attr("height", height + margin.top + margin.bottom)
-  .append("g")
-    .attr("transform",
-          "translate(" + margin.left + "," + margin.top + ")");
+  // append the svg object to the body of the page
+  var svg = d3.select("#chart")
+    .append("svg")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom);
+  
+  d3.csv("https://flunky.github.io/cars2017.csv").then(data => {
+      // Parse and filter the data
+      data.forEach(d => {
+          d.EngineCylinders = +d.EngineCylinders;
+          d.AverageHighwayMPG = +d.AverageHighwayMPG;
+          d.AverageCityMPG = +d.AverageCityMPG;
+      });
 
+      // Remove entries with 0 cylinders
+      data = data.filter(d => d.EngineCylinders > 0);
 
-d3.csv("https://flunky.github.io/cars2017.csv").then(data => {
-    // Parse the data
-    data.forEach(d => {
-        d.EngineCylinders = +d.EngineCylinders;
-        d.AverageHighwayMPG = +d.AverageHighwayMPG;
-        d.AverageCityMPG = +d.AverageCityMPG;
-        });
-    
-    var x = d3.scaleLog().domain([10,150]).range([0, width-margin*2])
-    var y = d3.scaleLog().domain([10,150]).range([height-margin*2, 0])
+      // Removies entries that are not Gasoline vehicles
+      data = data.filter(d => d.Fuel == "Gasoline" )
 
-    var xAxis = d3.axisBottom(x).tickValues([10,20,50,100]).tickFormat(d3.format("~s"))
-    var yAxis = d3.axisLeft(y).tickValues([10,20,50,100]).tickFormat(d3.format("~s"))
+      // Get unique cylinder options and sort them
+      var uniqueCylinders = [...new Set(data.map(d => d.EngineCylinders))].sort((a, b) => a - b);
 
+      var cylindersDiv = d3.select("#cylinders");
+      uniqueCylinders.forEach(cyl => {
+          var label = cylindersDiv.append("label");
+          label.append("input")
+              .attr("type", "radio")
+              .attr("name", "cylinder")
+              .attr("value", cyl)
+              .attr("id", "cyl-" + cyl)
+              .on("change", function() {
+                  updateChart(+this.value);
+              });
+          label.append("span").text(cyl + " Cylinders");
+      });
 
-    svg.data(data).enter()
-        .append("circle")
-        .attr("cx", d => x(d.AverageCityMPG))
-        .attr("cy", d => y(d.AverageHighwayMPG))
-        .attr("r", function(d) { return d.EngineCylinders+2;})
-    svg.append("g")
-        .attr("transform", "translate("+ margin +"," + margin +")")
-        .call(yAxis)
-    svg.append("g")
-        .attr("transform", "translate("+ margin +"," + (height-margin) +")")
-        .call(xAxis)
-})
+      // Set default selection to 4, most common
+      d3.select("#cyl-4").property("checked", true);
+
+      // Create scales and axes
+      var x0 = d3.scaleBand().domain(data.map(d => d.Make)).range([0, width - (margin.left + margin.right)]).padding(0.2);
+      var x1 = d3.scaleBand().domain(["City MPG", "Highway MPG"]).range([0, x0.bandwidth()]).padding(0.05);
+      var y = d3.scaleLinear().domain([0, d3.max(data, d => Math.max(d.AverageCityMPG, d.AverageHighwayMPG))]).nice().range([height - margin.top- margin.bottom, 0]);
+      
+      var xAxis = d3.axisBottom(x0);
+      var yAxis = d3.axisLeft(y);
+
+      // Append axes to the svg
+      svg.append("g")
+          .attr("class", "x-axis")
+          .attr("transform", "translate(" + margin.left + "," + (height - margin.bottom) + ")")
+          .call(xAxis)
+        .selectAll("text")  
+          .style("text-anchor", "end")
+          .attr("dx", "-.8em")
+          .attr("dy", ".15em")
+          .attr("transform", "rotate(-45)");
+
+      var yAxisGroup = svg.append("g")
+          .attr("class", "y-axis")
+          .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+          .call(yAxis);
+
+      //y-axis label
+      yAxisGroup.append("text")
+            .attr("transform", "rotate(-90)")
+            .attr("y", -margin.left + 20)
+            .attr("x", -margin.top - (height - margin.bottom) / 2)
+            //.attr("dy", "-4em")
+            .attr("text-anchor", "middle")
+            .style("font-size", "12px")
+            .attr("fill", "black")
+            .text("Miles per Gallon");
+
+      // Add x-axis label
+      svg.append("text")
+          .attr("transform", "translate(" + (width / 2) + " ," + (height + margin.bottom) + ")")
+          .style("text-anchor", "middle")
+          .style("font-size", "12px")
+          .text("Vehicle Make");
+
+      // Add horizontal grid lines
+      var yGridLines = d3.axisLeft(y)
+          .tickSize(-width)
+          .tickFormat("")
+          .ticks(10);
+      svg.append("g")
+          .attr("class", "grid")
+          .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+          .call(yGridLines)
+        .selectAll("line")
+          .attr("stroke", "grey")
+          .attr("stroke-dasharray", "2,2");
+
+      // Function to update the chart based on selected cylinder
+      function updateChart(selectedCylinder) {
+          var filteredData = data.filter(d => d.EngineCylinders === selectedCylinder);
+
+          // Group data by make
+          var groupedData = d3.nest()
+              .key(d => d.Make)
+              .entries(filteredData);
+
+          // Remove existing bars
+          svg.selectAll(".bar-group").remove();
+
+          // Append new bars
+          var barGroups = svg.selectAll(".bar-group")
+              .data(groupedData)
+              .enter().append("g")
+              .attr("class", "bar-group")
+              .attr("transform", d => "translate(" + (x0(d.key) + margin.left) + "," + margin.top + ")");
+
+          barGroups.selectAll("rect")
+              .data(d => [
+                  {type: "City MPG", value: d.values[0] ? d.values[0].AverageCityMPG : 0},
+                  {type: "Highway MPG", value: d.values[0] ? d.values[0].AverageHighwayMPG : 0}
+              ])
+              .enter().append("rect")
+              .attr("x", d => x1(d.type))
+              .attr("y", d => y(d.value))
+              .attr("width", x1.bandwidth())
+              .attr("height", d => y(0) - y(d.value))
+              .attr("fill", d => d.type === "City MPG" ? "steelblue" : "orange");
+      }
+
+      // Initial rendering of the chart with the first cylinder option
+      updateChart(uniqueCylinders[2]);
+  });
 }
 </script>
-</body>
